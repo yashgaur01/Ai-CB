@@ -283,6 +283,98 @@
 // app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 
+// require("dotenv").config();
+// const express = require("express");
+// const cors = require("cors");
+// const multer = require("multer");
+// const fs = require("fs");
+// const path = require("path");
+// const { exec } = require("child_process");
+// const { OpenAI } = require("openai");
+
+// const app = express();
+// app.use(cors());
+// app.use(express.json());
+// app.use(express.static(__dirname));
+
+// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// // Multer setup for audio uploads
+// const upload = multer({ dest: "uploads/" });
+
+// // Supported languages
+// const supportedLanguages = {
+//     en: "English",
+//     hi: "Hindi",
+//     bn: "Bengali",
+//     fr: "French"
+// };
+
+// // Handle text chat with TTS
+// app.post("/chat", async (req, res) => {
+//     const { message } = req.body;
+
+//     try {
+//         const response = await openai.chat.completions.create({
+//             model: "gpt-3.5-turbo",
+//             messages: [
+//                 { role: "system", content: "Reply in the same language as the user without mentioning language detection." },
+//                 { role: "user", content: message },
+//             ],
+//         });
+
+//         const botReply = response.choices[0].message.content;
+
+//         // **Detect Language**
+//         let detectedLanguage = "en"; // Default English
+//         if (/[\u0980-\u09FF]/.test(botReply)) {
+//             detectedLanguage = "bn"; // Bengali
+//         } else if (/[\u0900-\u097F]/.test(botReply)) {
+//             detectedLanguage = "hi"; // Hindi
+//         } else if (/[À-ſ]/.test(botReply)) {
+//             detectedLanguage = "fr"; // French
+//         }
+
+//         console.log(`Detected Language: ${detectedLanguage}`);
+
+//         if (!supportedLanguages[detectedLanguage]) {
+//             detectedLanguage = "en"; // Default to English if unsupported
+//         }
+
+//         console.log(`Using TTS Language: ${detectedLanguage}`);
+
+//         // **Convert reply to speech using Python gTTS**
+//         const audioPath = `tts_output.mp3`;
+//         const sanitizedReply = botReply.replace(/["']/g, ""); // Remove quotes to avoid syntax errors
+// const command = `python3 -c "from gtts import gTTS; tts = gTTS('''${sanitizedReply}''', lang='${detectedLanguage}'); tts.save('${audioPath}')"`;
+
+
+//         exec(command, (error) => {
+//             if (error) {
+//                 console.error("TTS Error:", error);
+//                 return res.json({ reply: botReply, error: "TTS failed, text provided.", language: detectedLanguage });
+//             }
+//             const timestamp = new Date().getTime();
+//             res.json({ reply: botReply, audio: `http://localhost:5001/${audioPath}?t=${timestamp}`, language: detectedLanguage });
+//         });
+
+//     } catch (error) {
+//         console.error("Chatbot Error:", error);
+//         res.status(500).json({ error: "Something went wrong" });
+//     }
+// });
+
+// // Serve static audio files
+// app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// const PORT = process.env.PORT || 5001;
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// app.get("/", (req, res) => {
+//     res.send("Chatbot Backend is Running!");
+//   });
+  
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -299,78 +391,43 @@ app.use(express.static(__dirname));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Multer setup for audio uploads
 const upload = multer({ dest: "uploads/" });
+const supportedLanguages = { en: "English", hi: "Hindi", bn: "Bengali", fr: "French" };
 
-// Supported languages
-const supportedLanguages = {
-    en: "English",
-    hi: "Hindi",
-    bn: "Bengali",
-    fr: "French"
-};
-
-// Handle text chat with TTS
+// Optimized Chat Route
 app.post("/chat", async (req, res) => {
     const { message } = req.body;
-
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4",
+        const detectLanguagePrompt = `Detect the language of the following message and respond only with the language code (en, hi, bn, fr):\n${message}`;
+        const langResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [{ role: "system", content: detectLanguagePrompt }],
+            max_tokens: 5
+        });
+        
+        let detectedLanguage = langResponse.choices[0].message.content.trim();
+        if (!supportedLanguages[detectedLanguage]) detectedLanguage = "en"; // Default to English
+
+        const chatResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
             messages: [
-                { role: "system", content: "Reply in the same language as the user without mentioning language detection." },
+                { role: "system", content: `You must always reply in ${supportedLanguages[detectedLanguage]}.` },
                 { role: "user", content: message },
             ],
+            max_tokens: 100
         });
 
-        const botReply = response.choices[0].message.content;
-
-        // **Detect Language**
-        let detectedLanguage = "en"; // Default English
-        if (/[\u0980-\u09FF]/.test(botReply)) {
-            detectedLanguage = "bn"; // Bengali
-        } else if (/[\u0900-\u097F]/.test(botReply)) {
-            detectedLanguage = "hi"; // Hindi
-        } else if (/[À-ſ]/.test(botReply)) {
-            detectedLanguage = "fr"; // French
-        }
-
-        console.log(`Detected Language: ${detectedLanguage}`);
-
-        if (!supportedLanguages[detectedLanguage]) {
-            detectedLanguage = "en"; // Default to English if unsupported
-        }
-
-        console.log(`Using TTS Language: ${detectedLanguage}`);
-
-        // **Convert reply to speech using Python gTTS**
+        const botReply = chatResponse.choices[0].message.content.trim();
         const audioPath = `tts_output.mp3`;
-        const sanitizedReply = botReply.replace(/["']/g, ""); // Remove quotes to avoid syntax errors
-const command = `python3 -c "from gtts import gTTS; tts = gTTS('''${sanitizedReply}''', lang='${detectedLanguage}'); tts.save('${audioPath}')"`;
-
-
-        exec(command, (error) => {
-            if (error) {
-                console.error("TTS Error:", error);
-                return res.json({ reply: botReply, error: "TTS failed, text provided.", language: detectedLanguage });
-            }
-            const timestamp = new Date().getTime();
-            res.json({ reply: botReply, audio: `http://localhost:5001/${audioPath}?t=${timestamp}`, language: detectedLanguage });
+        exec(`python3 -c "from gtts import gTTS; gTTS('${botReply.replace(/'/g, "")} ', lang='${detectedLanguage}').save('${audioPath}')" &`, (error) => {
+            if (error) console.error("TTS Error:", error);
         });
 
+        res.json({ reply: botReply, audio: `http://localhost:5001/${audioPath}`, language: detectedLanguage });
     } catch (error) {
         console.error("Chatbot Error:", error);
         res.status(500).json({ error: "Something went wrong" });
     }
 });
 
-// Serve static audio files
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-app.get("/", (req, res) => {
-    res.send("Chatbot Backend is Running!");
-  });
-  
+app.listen(5001, () => console.log("Server running on port 5001"));
